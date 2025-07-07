@@ -1,0 +1,23 @@
+# pip install -r requirements.txt
+
+# ⚙️ 웹 프레임워크 및 서버
+fastapi                  # Python 기반 고성능 웹 프레임워크 (비동기 지원, REST API 제작)
+uvicorn[standard]        # ASGI 서버 (FastAPI 실행용), standard 옵션은 추가 최적화 패키지 포함
+
+# 📦 데이터 모델링
+pydantic                 # 데이터 검증 및 스키마 정의 라이브러리 (FastAPI와 함께 사용됨)
+
+# 🤖 LangChain Core + 통합 모듈
+langchain                # LLM 파이프라인 구축 프레임워크 (체인, 에이전트 등 지원)
+langchain-community      # 다양한 오픈소스 LLM, 벡터DB, 도구 커넥터 모음 (PDF 로더, FAISS 등 포함)
+langchain-huggingface    # HuggingFace 임베딩 모델 통합을 위한 LangChain 확장
+langchain-ollama         # Ollama 로컬 LLM 사용을 위한 LangChain 통합 모듈 (Mistral 등 연결)
+
+# 🧠 벡터 검색 및 임베딩
+faiss-cpu                # Facebook AI Similarity Search (유사 문서 검색용, CPU 버전)
+sentence-transformers    # 다양한 pre-trained 문장 임베딩 모델 지원 (HuggingFace 기반)
+
+# 📄 문서 로딩
+PyMuPDF                  # PDF 파일 로딩/파싱을 위한 경량 라이브러리 (LangChain의 `PyMuPDFLoader`에서 사용)
+
+langchain-teddynote==0.3.44

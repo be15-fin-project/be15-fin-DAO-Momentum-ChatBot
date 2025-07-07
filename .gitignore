@@ -1,0 +1,16 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# 환경 설정 파일
+.env
+
+# Poetry 관련
+poetry.lock
+
+# VS Code 설정
+.vscode/
+
+# OS별 캐시/임시 파일
+.DS_Store
+Thumbs.db
