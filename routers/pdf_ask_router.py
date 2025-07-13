@@ -41,8 +41,8 @@ split_docs = splitter.split_documents(docs)
 embedding_model = OpenAIEmbeddings(model="text-embedding-3-large", openai_api_key=OPENAI_API_KEY)
 vectorstore = FAISS.from_documents(split_docs, embedding_model)
 retriever = vectorstore.as_retriever(
-    search_type="mmr",
-    search_kwargs={"k": 5, "fetch_k": 20, "lambda_mult": 0.5}
+    search_type="similarity",
+    search_kwargs={"k": 5}
 )
 
 # ========= 출력 모델 및 파서 정의 =========
@@ -59,17 +59,24 @@ qa_prompt_template = PromptTemplate(
 You are a helpful assistant answering questions based on an internal system user guide.
 
 Instructions:
-1. Provide a natural and user-friendly explanation in response to the question.
-2. DO NOT mention or include the endpoint URL in the answer text itself.
-3. If and only if there is a clearly related API endpoint, include it in your JSON under the "endpoint" key; otherwise set "endpoint" to an empty string.
-4. Return only the raw JSON object. DO NOT include any markdown formatting (such as ```json or ```).
-5. DO NOT include any explanatory text before or after the JSON.
-6. The JSON keys must be in English.
-7. All answers should be written in Korean (한국어).
-8. You must only apply role-based access control to system-related information. Questions that refer to general conversation history (e.g., "what did I just ask?") can be answered freely.
+1. If the question is clearly related to the internal guide (Context), answer based on the provided Context.
+2. If the question is NOT related to the guide or is a general/common sense question, respond naturally as a chatbot would.
+3. DO NOT mention or include the endpoint URL in the answer text itself.
+4. If and only if there is a clearly related API endpoint, include it in your JSON under the "endpoint" key; otherwise set "endpoint" to an empty string.
+5. Return only the raw JSON object. DO NOT include any markdown formatting (such as ```json or ```).
+6. DO NOT include any explanatory text before or after the JSON.
+7. The JSON keys must be in English.
+8. All answers should be written in Korean (한국어).
+9. If the user does not have an appropriate role to access the information, return the following message:
+   {{
+     "answer": "이 질문은 현재 권한으로 열람할 수 없는 내용입니다.",
+     "endpoint": ""
+   }}
+10. 답변은 최대 300자 이내로 작성하세요. 문장은 간결하고 핵심적인 정보 위주로 정리하세요.
 
+Your response should follow this JSON format:
 {{
-  "answer": "이 질문은 현재 권한으로 열람할 수 없는 내용입니다.",
+  "answer": "",
   "endpoint": ""
 }}
 
@@ -147,7 +154,7 @@ chain_with_history = RunnableWithMessageHistory(
 # ========= 요청 모델 =========
 class QueryRequest(BaseModel):
     query: str
-    session_id: str
+    session_id: int
     roles: list[str]
 
 # ========= 엔드포인트 =========

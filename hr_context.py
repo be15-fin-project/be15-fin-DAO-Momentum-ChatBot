@@ -65,13 +65,13 @@ CATEGORY_QUERIES: Dict[str, str] = {
     # 3. 출퇴근 통계 (이번 달)
     "commute": """
         SELECT
-            SUM(TIMESTAMPDIFF(MINUTE, start_at, end_at) - break_time) AS total_minutes,
-            SUM(CASE WHEN type_id = (SELECT type_id FROM work_type WHERE type_name='OVERTIME') 
-                    THEN TIMESTAMPDIFF(MINUTE, start_at, end_at) - break_time ELSE 0 END) AS overtime_minutes,
-            SUM(CASE WHEN TIME(start_at) >= '22:00' OR TIME(end_at) < '06:00'
-                    THEN TIMESTAMPDIFF(MINUTE, start_at, end_at) - break_time ELSE 0 END) AS night_minutes,
-            SUM(CASE WHEN DATE(start_at) IN (SELECT date FROM holiday)
-                    THEN TIMESTAMPDIFF(MINUTE, start_at, end_at) - break_time ELSE 0 END) AS holiday_minutes
+        COALESCE(SUM(TIMESTAMPDIFF(MINUTE, start_at, end_at) - break_time), 0) AS total_minutes,
+        COALESCE(SUM(CASE WHEN type_id = (SELECT type_id FROM work_type WHERE type_name='OVERTIME') 
+                THEN TIMESTAMPDIFF(MINUTE, start_at, end_at) - break_time ELSE 0 END), 0) AS overtime_minutes,
+        COALESCE(SUM(CASE WHEN TIME(start_at) >= '22:00' OR TIME(end_at) < '06:00'
+                THEN TIMESTAMPDIFF(MINUTE, start_at, end_at) - break_time ELSE 0 END), 0) AS night_minutes,
+        COALESCE(SUM(CASE WHEN DATE(start_at) IN (SELECT date FROM holiday)
+                THEN TIMESTAMPDIFF(MINUTE, start_at, end_at) - break_time ELSE 0 END), 0) AS holiday_minutes
         FROM work
         WHERE emp_id = :employee_id
         AND YEAR(start_at) = YEAR(CURDATE())
