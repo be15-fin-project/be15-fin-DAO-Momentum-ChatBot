@@ -1,6 +1,5 @@
 from fastapi import APIRouter
-from pydantic import BaseModel
-from typing import List
+from pydantic import BaseModel, Field
 import json
 
 from langchain_teddynote import logging
@@ -8,33 +7,54 @@ from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores.faiss import FAISS
 from langchain_community.document_loaders.pdf import PyMuPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.prompts import PromptTemplate
+from langchain_community.chat_message_histories import ChatMessageHistory
+
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains.history_aware_retriever import create_history_aware_retriever
+from langchain.chains.retrieval import create_retrieval_chain
+
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.prompts import (
+    PromptTemplate,
+    ChatPromptTemplate,
+    SystemMessagePromptTemplate,
+    MessagesPlaceholder,
+    HumanMessagePromptTemplate,
+)
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from config import OPENAI_API_KEY, LANGCHAIN_PROJECT
 
-# ========== APIRouter 생성 ==========
-router = APIRouter()
-
-# ========== LangChain 추적 ==========
+# ========= LangSmith 추적 설정 =========
 logging.langsmith(project_name=LANGCHAIN_PROJECT)
 
-# ========== PDF 벡터스토어 초기화 ==========
+# ========= 라우터 =========
+router = APIRouter()
+
+# ========= 문서 벡터화 =========
 loader = PyMuPDFLoader("data/사이트_설명서_v2.pdf")
 docs = loader.load()
-splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
+splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
 split_docs = splitter.split_documents(docs)
 
-embedding_model = OpenAIEmbeddings(
-    model="text-embedding-3-large",
-    openai_api_key=OPENAI_API_KEY
-)
+embedding_model = OpenAIEmbeddings(model="text-embedding-3-large", openai_api_key=OPENAI_API_KEY)
 vectorstore = FAISS.from_documents(split_docs, embedding_model)
+retriever = vectorstore.as_retriever(
+    search_type="mmr",
+    search_kwargs={"k": 5, "fetch_k": 20, "lambda_mult": 0.5}
+)
 
-# ========== LLM & Prompt Chain ==========
-llm = ChatOpenAI(model="gpt-4o", temperature=0.7, api_key=OPENAI_API_KEY)
+# ========= 출력 모델 및 파서 정의 =========
+class QAResponse(BaseModel):
+    answer: str = Field(description="한국어로 작성된 자연스러운 설명")
+    endpoint: str = Field(description="관련된 API endpoint 경로. 없으면 빈 문자열")
 
-prompt_template = PromptTemplate(
-    input_variables=["context", "question", "roles"],
+qa_parser = JsonOutputParser(pydantic_object=QAResponse)
+
+# ========= 프롬프트 정의 =========
+qa_prompt_template = PromptTemplate(
+    input_variables=["context", "input", "roles"],
     template="""
 You are a helpful assistant answering questions based on an internal system user guide.
 
@@ -46,7 +66,7 @@ Instructions:
 5. DO NOT include any explanatory text before or after the JSON.
 6. The JSON keys must be in English.
 7. All answers should be written in Korean (한국어).
-8. You must only answer questions that are permitted for the roles listed below. If the question cannot be answered due to role limitations, return the following format:
+8. You must only apply role-based access control to system-related information. Questions that refer to general conversation history (e.g., "what did I just ask?") can be answered freely.
 
 {{
   "answer": "이 질문은 현재 권한으로 열람할 수 없는 내용입니다.",
@@ -60,70 +80,150 @@ Context:
 {context}
 
 Question:
-{question}
+{input}
 """
 )
 
-qa_chain = prompt_template | llm
+qa_prompt = ChatPromptTemplate.from_messages([
+    MessagesPlaceholder("history"),
+    SystemMessagePromptTemplate(prompt=qa_prompt_template)
+])
 
-# ========== 요청 모델 ==========
+contextualize_q_system_prompt = """
+Given a chat history, the latest user question, employee summary information (included in the first history message), \
+and metadata about the HR management system tables, formulate a standalone question. \
+The standalone question must be understandable without the chat history and \
+should utilize the given employee summary and table metadata if relevant. 
+
+**Do NOT answer the question. Only generate or reformulate the question.**
+
+질문은 반드시 한국어 존댓말로 해줘.
+"""
+
+contextualize_q_prompt = ChatPromptTemplate.from_messages([
+    ("system", contextualize_q_system_prompt),
+    MessagesPlaceholder("history"),
+    ("human", "{input}")
+])
+
+# ========= LLM 및 체인 구성 =========
+llm = ChatOpenAI(model="gpt-4o", temperature=0.7, api_key=OPENAI_API_KEY)
+
+contextual_retriever = create_history_aware_retriever(
+    llm=llm,
+    retriever=retriever,
+    prompt=contextualize_q_prompt
+)
+
+# output parser 연결된 문서 응답 체인
+combine_docs_chain = create_stuff_documents_chain(llm=llm, prompt=qa_prompt) | qa_parser
+
+rag_chain = create_retrieval_chain(
+    retriever=contextual_retriever,
+    combine_docs_chain=combine_docs_chain
+)
+
+# ========= 세션 관리 =========
+chat_history_store = {}
+
+def get_chat_history(session_id: str) -> ChatMessageHistory:
+    if session_id not in chat_history_store:
+        chat_history_store[session_id] = ChatMessageHistory()
+    return chat_history_store[session_id]
+
+def truncate_history(history: ChatMessageHistory, max_turns=4):
+    truncated = history.messages[-(max_turns * 2):]
+    history.clear()
+    for msg in truncated:
+        history.add_message(msg)
+
+chain_with_history = RunnableWithMessageHistory(
+    runnable=rag_chain,
+    get_session_history=get_chat_history,
+    input_messages_key="input",
+    history_messages_key="history"
+)
+
+# ========= 요청 모델 =========
 class QueryRequest(BaseModel):
     query: str
-    role: List[str]
+    session_id: str
+    roles: list[str]
 
-# ========== 엔드포인트 ==========
+# ========= 엔드포인트 =========
 @router.post("/ask")
-async def ask_pdf_question(query_request: QueryRequest):
-    retriever = vectorstore.as_retriever(
-        search_type="mmr",
-        search_kwargs={"k": 5, "fetch_k": 20, "lambda_mult": 0.8}
-    )
-    docs = retriever.invoke(query_request.query)
-    context_text = "\n\n".join([doc.page_content for doc in docs])
+async def ask_conversational_question(query_request: QueryRequest):
+    history = get_chat_history(query_request.session_id)
+    truncate_history(history)
 
-    # 사용자 권한 정보를 문자열로 변환
-    role_text = ", ".join(query_request.role)
-
-    response = qa_chain.invoke(
+    response = chain_with_history.invoke(
         {
-            "context": context_text,
-            "question": query_request.query,
-            "roles": role_text
+            "input": query_request.query,
+            "roles": ", ".join(query_request.roles),
+            "context": ""  # context는 retriever 내부에서 자동 주입
         },
-        config={"tags": ["api_call", LANGCHAIN_PROJECT]}
+        config={
+            "tags": ["conversational-rag", LANGCHAIN_PROJECT],
+            "configurable": {"session_id": query_request.session_id}
+        }
     )
+
+    # 히스토리에 사용자 질문 저장
+    history.add_user_message(HumanMessage(content=query_request.query))
 
     try:
-        parsed = json.loads(response.content)
+        # 응답 파싱
+        if isinstance(response, str):
+            parsed = json.loads(response)
+        elif isinstance(response, dict):
+            parsed = response
+        else:
+            raise ValueError("Unknown response type")
 
-        if "answer" not in parsed:
-            raise ValueError("Missing 'answer' in response")
+        # ⬇️ answer가 dict일 수 있으므로 안전하게 처리
+        nested = parsed.get("answer")
+        print("✅ parsed:", parsed)
+        print("✅ nested (parsed['answer']):", nested)
+
+        if isinstance(nested, dict):
+            answer_text = nested.get("answer", "")
+            endpoint_text = nested.get("endpoint", "")
+        elif isinstance(nested, str):
+            answer_text = nested
+            endpoint_text = parsed.get("endpoint", "")
+        else:
+            answer_text = str(nested)
+            endpoint_text = parsed.get("endpoint", "")
+
+        print("✅ answer_text:", answer_text)
+        print("✅ endpoint_text:", endpoint_text)
+
+        history.add_ai_message(AIMessage(content=answer_text))
+
+        # 🔍 업데이트된 히스토리 출력
+        print("=== Chat History AFTER invoke ===")
+        for msg in history.messages:
+            print(f"[{msg.type.upper()}] {msg.content}")
+        print("=================================")
 
         return {
-            "question": query_request.query,
-            "answer": parsed["answer"],
-            "endpoint": parsed.get("endpoint", "")
+            "answer": answer_text,
+            "endpoint": endpoint_text
         }
 
     except json.JSONDecodeError:
+        history.add_ai_message(AIMessage(content="응답 형식을 이해하지 못했어요. 다시 질문해 주시겠어요?"))
         return {
             "question": query_request.query,
             "answer": "응답 형식을 이해하지 못했어요. 다시 질문해 주시겠어요?",
-            "raw_output": response.content
-        }
-
-    except ValueError as ve:
-        return {
-            "question": query_request.query,
-            "answer": "답변이 정확하지 않아요. 다시 한번 질문을 정리해 주세요.",
-            "error_detail": str(ve),
-            "raw_output": response.content
+            "raw_output": response
         }
 
     except Exception as e:
+        history.add_ai_message(AIMessage(content="예기치 않은 오류가 발생했어요. 관리자에게 문의해 주세요."))
         return {
             "question": query_request.query,
             "answer": "예기치 않은 오류가 발생했어요. 관리자에게 문의해 주세요.",
             "error": str(e),
-            "raw_output": response.content
+            "raw_output": response
         }

@@ -1,8 +1,17 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from routers.pdf_ask_router import router as pdf_router
 from routers.hr_ask_router import router as hr_router
 
 app = FastAPI()
+
+# CORS 설정 (모든 origin 허용)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 모든 도메인 허용
+    allow_methods=["POST"],  
+)
 
 # 각각 라우터 등록
 app.include_router(pdf_router)
