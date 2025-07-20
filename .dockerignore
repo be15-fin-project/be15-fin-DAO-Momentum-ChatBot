@@ -1,0 +1,42 @@
+# Bytecode 파일 및 캐시 디렉토리
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 환경 변수 및 민감 정보
+.env
+.env.*
+
+# 로그 파일
+*.log
+
+# 시스템 파일
+.DS_Store
+Thumbs.db
+
+# 가상 환경 (혹시 실수로 포함했을 경우)
+.venv/
+venv/
+
+# Git
+.git/
+.gitignore
+
+# IDE/에디터 설정
+.vscode/
+.idea/
+
+# 테스트 결과 또는 커버리지
+.coverage
+htmlcov/
+.tox/
+
+# 빌드 관련
+dist/
+build/
+*.egg-info/
+
+# Docker 관련 백업
+Dockerfile~
+docker-compose.yml~
