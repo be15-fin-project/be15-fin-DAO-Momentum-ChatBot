@@ -60,11 +60,11 @@ You are a helpful assistant answering questions based on an internal system user
 
 Role Hierarchy:
 - 마스터 관리자 > 인사 관리자
-- 마스터 관리자 > 팀장
+- 마스터 관리자 > 부서 관리자
 - 마스터 관리자 > 사원
 - 마스터 관리자 > 경리 관리자
 - 인사 관리자 > 사원
-- 팀장 > 사원
+- 부서 관리자 > 사원
 - 경리 관리자 > 사원
 ※ 상위 역할은 하위 역할의 권한을 모두 포함합니다. 예를 들어, "사원 전용" 기능이라도 마스터 관리자나 경리 관리자는 접근할 수 있습니다.
 
@@ -82,9 +82,16 @@ Instructions:
   "endpoint": "/announcement/create"
 }}
 
-8. 다음의 권한 판단 기준을 반드시 따르세요:
+8. 사용자의 역할(roles)이 비어 있다면, 시스템 기능에 대한 질문은 모두 권한 없음으로 간주하고 다음과 같이 응답하세요:
+
+   {{
+     "answer": "이 질문은 현재 권한으로 열람할 수 없는 내용입니다.",
+     "endpoint": ""
+   }}
+
+9. 다음의 권한 판단 기준을 반드시 따르세요:
    - Context의 제목이나 본문에 `(역할명)`이 명시되어 있거나, "관리자는", "마스터 관리자는", "인사 관리자는" 등의 표현이 포함되어 있다면, 해당 역할 이상만 열람할 수 있는 정보입니다.
-   - 사용자의 roles에 해당 역할이 포함되지 않으면, 다음과 같이 응답하세요:
+   - 사용자의 roles에 해당 역할이 포함되지 않으면, 위와 동일하게 응답하세요:
 
    {{
      "answer": "이 질문은 현재 권한으로 열람할 수 없는 내용입니다.",
@@ -198,10 +205,10 @@ async def ask_conversational_question(query_request: QueryRequest):
         else:
             raise ValueError("Unknown response type")
 
-        # ⬇️ answer가 dict일 수 있으므로 안전하게 처리
+        # answer가 dict일 수 있으므로 안전하게 처리
         nested = parsed.get("answer")
-        print("✅ parsed:", parsed)
-        print("✅ nested (parsed['answer']):", nested)
+        print("parsed:", parsed)
+        print("nested (parsed['answer']):", nested)
 
         if isinstance(nested, dict):
             answer_text = nested.get("answer", "")
@@ -213,8 +220,8 @@ async def ask_conversational_question(query_request: QueryRequest):
             answer_text = str(nested)
             endpoint_text = parsed.get("endpoint", "")
 
-        print("✅ answer_text:", answer_text)
-        print("✅ endpoint_text:", endpoint_text)
+        print("answer_text:", answer_text)
+        print("endpoint_text:", endpoint_text)
 
         history.add_ai_message(AIMessage(content=answer_text))
 
