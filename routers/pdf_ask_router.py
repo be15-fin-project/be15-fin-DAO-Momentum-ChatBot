@@ -60,11 +60,11 @@ You are a helpful assistant answering questions based on an internal system user
 
 Role Hierarchy:
 - 마스터 관리자 > 인사 관리자
-- 마스터 관리자 > 부서 관리자
+- 마스터 관리자 > 팀장
 - 마스터 관리자 > 사원
 - 마스터 관리자 > 경리 관리자
 - 인사 관리자 > 사원
-- 부서 관리자 > 사원
+- 팀장 > 사원
 - 경리 관리자 > 사원
 ※ 상위 역할은 하위 역할의 권한을 모두 포함합니다. 예를 들어, "사원 전용" 기능이라도 마스터 관리자나 경리 관리자는 접근할 수 있습니다.
 
